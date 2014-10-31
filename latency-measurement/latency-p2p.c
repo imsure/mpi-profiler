@@ -17,10 +17,15 @@ int main( int argc, char *argv[] )
   MPI_Status status;
   double start_time, end_time;
   char hostname[ MPI_MAX_PROCESSOR_NAME ];
+  FILE * output;
 
   MPI_Init( &argc, &argv );
   MPI_Comm_rank( MPI_COMM_WORLD, &myrank );
   MPI_Get_processor_name( hostname, &len );
+
+  if (myrank == 0) {
+    output = fopen( "latency-sendrecv.csv", "w" );
+  }
 
   //printf( "Rank %d is running on %s\n", myrank, hostname );
   for (msg_size = MIN_SIZE; msg_size <= MAX_SIZE; msg_size *= 2) {
@@ -39,7 +44,7 @@ int main( int argc, char *argv[] )
       }
       end_time = MPI_Wtime();
 
-      printf( "Time elpased: %.3lf\n", (end_time - start_time)/repetition/2 );
+      fprintf( output, "%d,%.3lf\n", msg_size, (end_time - start_time)/repetition/2 );
     } else if (myrank == 1) {
       for (i = 0; i < repetition; ++i) {
 	// waiting to receive the message from rank 0

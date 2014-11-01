@@ -9,8 +9,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MIN_SIZE 64
-#define MAX_SIZE 1024*1024
+#define MIN_SIZE 32 // 32 bytes
+#define MAX_SIZE 1024*1024*32 // 32 MB
 #define ROUND_TRIP 100
 #define NUM_CASES 4
 #define TAG 99

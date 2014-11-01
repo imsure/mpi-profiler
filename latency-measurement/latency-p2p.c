@@ -1,5 +1,7 @@
 /**
- * Peer to peer communication in MPI.
+ * Measuring message latency of Peer to peer communication in MPI.
+ *
+ * Author: Shuo Yang
  */
 
 #include "mpi.h"
@@ -8,7 +10,7 @@
 #include <string.h>
 
 #define MIN_SIZE 64
-#define MAX_SIZE 1024*1024*64
+#define MAX_SIZE 1024*1024
 #define ROUND_TRIP 100
 #define NUM_CASES 4
 #define TAG 99
@@ -33,7 +35,7 @@ void latency_send_recv( unsigned char * msg, int msg_size,
     }
     end_time = MPI_Wtime();
 
-    fprintf( output, "%d,%.3lf\n", msg_size, (end_time - start_time)/roundtrip/2 );
+    fprintf( output, "%d,%.3lf\n", msg_size, (end_time - start_time)*1000/roundtrip/2 );
   } else if (myrank == 1) {
     for (i = 0; i < roundtrip; ++i) {
       // waiting to receive the message from rank 0
@@ -67,7 +69,7 @@ void latency_send_Irecv( unsigned char * msg, int msg_size,
     }
     end_time = MPI_Wtime();
 
-    fprintf( output, "%d,%.3lf\n", msg_size, (end_time - start_time)/roundtrip/2 );
+    fprintf( output, "%d,%.3lf\n", msg_size, (end_time - start_time)*1000/roundtrip/2 );
   } else if (myrank == 1) {
     for (i = 0; i < roundtrip; ++i) {
       // waiting to receive the message from rank 0
@@ -102,7 +104,7 @@ void latency_Isend_recv( unsigned char * msg, int msg_size,
     }
     end_time = MPI_Wtime();
 
-    fprintf( output, "%d,%.3lf\n", msg_size, (end_time - start_time)/roundtrip/2 );
+    fprintf( output, "%d,%.3lf\n", msg_size, (end_time - start_time)*1000/roundtrip/2 );
   } else if (myrank == 1) {
     for (i = 0; i < roundtrip; ++i) {
       // waiting to receive the message from rank 0
@@ -138,7 +140,7 @@ void latency_Isend_Irecv( unsigned char * msg, int msg_size,
     }
     end_time = MPI_Wtime();
 
-    fprintf( output, "%d,%.3lf\n", msg_size, (end_time - start_time)/roundtrip/2 );
+    fprintf( output, "%d,%.3lf\n", msg_size, (end_time - start_time)*1000/roundtrip/2 );
   } else if (myrank == 1) {
     for (i = 0; i < roundtrip; ++i) {
       // waiting to receive the message from rank 0

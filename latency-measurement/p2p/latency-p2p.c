@@ -16,6 +16,17 @@
 #define TAG 99
 
 /**
+ * Compute the latecny in milliseconds and write
+ * (message size, latency) to the output file stream.
+ */
+void compute_latency( int msg_size, double end_time,
+		      double start_time, int roundtrip, FILE * output )
+{
+  double latency = (end_time - start_time) * 1000 / roundtrip / 2;
+  fprintf( output, "%d,%.3lf\n", msg_size, latency );
+}
+
+/**
  * Measure latency between MPI_Send and MPI_Recv.
  */
 void latency_send_recv( unsigned char * msg, int msg_size,
@@ -35,7 +46,7 @@ void latency_send_recv( unsigned char * msg, int msg_size,
     }
     end_time = MPI_Wtime();
 
-    fprintf( output, "%d,%.3lf\n", msg_size, (end_time - start_time)*1000/roundtrip/2 );
+    compute_latency( msg_size, end_time, start_time, roundtrip, output );
   } else if (myrank == 1) {
     for (i = 0; i < roundtrip; ++i) {
       // waiting to receive the message from rank 0
@@ -69,7 +80,7 @@ void latency_send_Irecv( unsigned char * msg, int msg_size,
     }
     end_time = MPI_Wtime();
 
-    fprintf( output, "%d,%.3lf\n", msg_size, (end_time - start_time)*1000/roundtrip/2 );
+    compute_latency( msg_size, end_time, start_time, roundtrip, output );
   } else if (myrank == 1) {
     for (i = 0; i < roundtrip; ++i) {
       // waiting to receive the message from rank 0
@@ -104,7 +115,7 @@ void latency_Isend_recv( unsigned char * msg, int msg_size,
     }
     end_time = MPI_Wtime();
 
-    fprintf( output, "%d,%.3lf\n", msg_size, (end_time - start_time)*1000/roundtrip/2 );
+    compute_latency( msg_size, end_time, start_time, roundtrip, output );
   } else if (myrank == 1) {
     for (i = 0; i < roundtrip; ++i) {
       // waiting to receive the message from rank 0
@@ -140,7 +151,7 @@ void latency_Isend_Irecv( unsigned char * msg, int msg_size,
     }
     end_time = MPI_Wtime();
 
-    fprintf( output, "%d,%.3lf\n", msg_size, (end_time - start_time)*1000/roundtrip/2 );
+    compute_latency( msg_size, end_time, start_time, roundtrip, output );
   } else if (myrank == 1) {
     for (i = 0; i < roundtrip; ++i) {
       // waiting to receive the message from rank 0

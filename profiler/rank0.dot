@@ -1,0 +1,7 @@
+digraph rank0 {
+	MPI_Init_-1 [label="MPI_Init"];
+	MPI_Send_0 [label="MPI_Send"];
+	MPI_Send_0 [label="MPI_Send"];
+	MPI_Barrier_-1 [label="MPI_Barrier"];
+	MPI_Finalize_-1 [label="MPI_Finalize"];
+}

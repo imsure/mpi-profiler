@@ -28,6 +28,8 @@ _EXTERN_C_ void *MPIR_ToPointer(int);
 #define MPI_Init_Index 0
 #define MPI_Send_Index 1
 
+#define NO_RANK -1 // rank for collective operations
+
 _EXTERN_C_ void pmpi_init(MPI_Fint *ierr);
 _EXTERN_C_ void PMPI_INIT(MPI_Fint *ierr);
 _EXTERN_C_ void pmpi_init_(MPI_Fint *ierr);
@@ -52,7 +54,6 @@ struct vertex {
   sendrecv * sr;
   vertex * next; // next vertex
 };
-
 
 static vertex head;
 static vertex * tail = &head;
@@ -90,9 +91,8 @@ _EXTERN_C_ int MPI_Init(int *argc, char ***argv) {
   
   MPI_Comm_rank( MPI_COMM_WORLD, &myrank );
 
-  sprintf( fname, "rank%d.out", myrank ); // construct file name for output
+  sprintf( fname, "rank%d.dot", myrank ); // construct file name for output
   local_graph = fopen( fname, "w" );
-  fprintf( local_graph, "myrank=%d\n", myrank );
   
   return _wrap_py_return_val;
 }
@@ -306,21 +306,23 @@ _EXTERN_C_ int MPI_Finalize() {
   _wrap_py_return_val = PMPI_Finalize();
   tail->end_time = MPI_Wtime();
 
+  fprintf( local_graph, "digraph rank%d {\n", myrank );
+  
   /* Traverse the local task graph and write each vertex to
      the local output file, one vertex per line. */
   vertex * h = &head;
   while (h != NULL) {
-    if (h->sr == NULL) {
-      fprintf( local_graph, "vertex=%s start_time=%lf end_time=%lf\n",
-	       h->name, h->start_time, h->end_time );
+    if (strcmp(h->name, "MPI_Init") == 0 ||
+	strcmp(h->name, "MPI_Finalize") == 0 ||
+	strncmp(h->name, "MPI_Barrier", strlen("MPI_Barrier")) == 0 ) {
+      fprintf( local_graph, "\t%s_%d [label=\"%s\"];\n", h->name, NO_RANK, h->name );
     } else {
-      fprintf( local_graph, "vertex=%s start_time=%lf end_time=%lf \
-sender_rank=%d receiver_rank=%d tag=%d msg_size=%d\n",
-	       h->name, h->start_time, h->end_time, h->sr->sender_rank,
-	       h->sr->receiver_rank, h->sr->tag, h->sr->msg_size );
+      fprintf( local_graph, "\t%s_%d [label=\"%s\"];\n", h->name, myrank, h->name );
     }
+    
     h = h->next;
   }
+  fprintf( local_graph, "}\n", myrank );
   fclose( local_graph );
 
   return _wrap_py_return_val;

@@ -351,6 +351,16 @@ _EXTERN_C_ int MPI_Finalize() {
     PMPI_Send( graph.vs, graph.size, vertex_type, 0, 99, MPI_COMM_WORLD );
   }
 
+  /* Clean up ... */
+  MPI_Type_free( &vertex_type ); // clean up the constructed MPI type.
+  free_vector( &graph ); // free vector
+  if (myrank == 0) {
+    for (i = 1; i < numranks; ++i) {
+      free( graphs[i] );
+    }
+    free( vec_sizes );
+    free( graphs );
+  }
   _wrap_py_return_val = PMPI_Finalize();
 
   return _wrap_py_return_val;

@@ -77,5 +77,7 @@ void init_vector( vector * vec, int capacity );
 void append_vector( vector * vec, vertex * vt );
 /* Double the capacity of the vector 'vec' if it is full. */
 void resize_vector( vector * vec );
+/* Cleaup up vector 'vec' */
+void free_vector( vector * vec );
 
 #endif // _VECTOR_H_

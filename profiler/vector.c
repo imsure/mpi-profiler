@@ -38,3 +38,9 @@ void resize_vector( vector * vec )
   vec->vs = (vertex *) realloc( vec->vs,
 				vec->capacity * sizeof(vertex) );
 }
+
+/* Clean up the vector 'vec' */
+void free_vector( vector * vec )
+{
+  free( vec->vs );
+}

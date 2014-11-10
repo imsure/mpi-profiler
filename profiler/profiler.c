@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "vector.h"
 
 #ifndef _EXTERN_C_
 #ifdef __cplusplus
@@ -35,42 +36,14 @@ _EXTERN_C_ void PMPI_INIT(MPI_Fint *ierr);
 _EXTERN_C_ void pmpi_init_(MPI_Fint *ierr);
 _EXTERN_C_ void pmpi_init__(MPI_Fint *ierr);
 
-typedef struct vertex vertex;
-typedef struct sendrecv sendrecv;
+static int myrank, numranks;
+static int sendrecv_id = 0; // ID for send/recv operations
+static int collective_id = 0; // ID for collective operations
+static vector graph; // vector holding the MPI task graph for every rank
+static int *vec_sizes; // array to hold sizes of vectors of each rank
+static vertex **graphs; // array of vertex *, each of which point to a local graph
 
-/* Metadata related to the send/recv operations. */
-struct sendrecv {
-  int sender_rank; // rank id of the sender
-  int receiver_rank; // rank id of the receiver
-  int tag; // message tag
-  int msg_size; // size of message
-};
-
-/* Represents a vertex in the MPI task graph. */
-struct vertex {
-  char name[ 50 ]; // name of the operation
-  double start_time; // time of the start of the operation
-  double end_time; // time of the end of the operation
-  sendrecv * sr;
-  vertex * next; // next vertex
-};
-
-static vertex head;
-static vertex * tail = &head;
-static int myrank;
-
-/* file that contains local task graph for the current rank. */
-static FILE * local_graph = NULL;
-static char fname[20];
-
-static void init_tail( const char * func_name )
-{
-  tail->next = (vertex *) malloc( sizeof(vertex) );
-  tail = tail->next;
-  tail->sr = NULL;
-  tail->next = NULL;
-  strcpy( tail->name, func_name );
-}
+MPI_Datatype vertex_type;
 
 int get_mpi_datatype_size( MPI_Datatype datatype )
 {
@@ -81,19 +54,48 @@ int get_mpi_datatype_size( MPI_Datatype datatype )
 _EXTERN_C_ int PMPI_Init(int *argc, char ***argv);
 _EXTERN_C_ int MPI_Init(int *argc, char ***argv) { 
   int _wrap_py_return_val = 0;
-  char rank[5];
-
-  strcpy( head.name, __FUNCTION__ );
-
-  head.start_time = MPI_Wtime();
+  vertex v;
+  MPI_Datatype types[7] = { MPI_CHAR, MPI_DOUBLE, MPI_DOUBLE,
+			    MPI_INT, MPI_INT, MPI_INT, MPI_INT };
+  int blocklens[7] = { 32, 1, 1, 1, 1, 1, 1 };
+  MPI_Aint disp[7];
+  
+  v.start_time = MPI_Wtime();
   _wrap_py_return_val = PMPI_Init(argc, argv);
-  head.end_time = MPI_Wtime();
-  
-  MPI_Comm_rank( MPI_COMM_WORLD, &myrank );
+  v.end_time = MPI_Wtime();
 
-  sprintf( fname, "rank%d.dot", myrank ); // construct file name for output
-  local_graph = fopen( fname, "w" );
-  
+  /*
+   * Set up the MPI datatype for vertex structure.
+   */
+  MPI_Address( &v.name, &disp[0] );
+  MPI_Address( &v.start_time, &disp[1] );
+  MPI_Address( &v.end_time, &disp[2] );
+  MPI_Address( &v.sender_rank, &disp[3] );
+  MPI_Address( &v.receiver_rank, &disp[4] );
+  MPI_Address( &v.tag, &disp[5] );
+  MPI_Address( &v.msg_size, &disp[6] );
+  /* make relative */
+  disp[ 1 ] -= disp[ 0 ];
+  disp[ 2 ] -= disp[ 0 ];
+  disp[ 3 ] -= disp[ 0 ];
+  disp[ 4 ] -= disp[ 0 ];
+  disp[ 5 ] -= disp[ 0 ];
+  disp[ 6 ] -= disp[ 0 ];
+  disp[ 0 ] = 0;
+
+  MPI_Type_create_struct( 7, blocklens, disp, types, &vertex_type );
+  MPI_Type_commit( &vertex_type );
+
+  MPI_Comm_rank( MPI_COMM_WORLD, &myrank );
+  MPI_Comm_size( MPI_COMM_WORLD, &numranks );
+
+  vec_sizes = (int *) malloc( numranks * sizeof(int) );
+  graphs = (vertex **) malloc( numranks * sizeof(vertex *) );
+
+  init_vector( &graph, INIT_CAPACITY );
+  sprintf( v.name, "%s:-1", __FUNCTION__ );
+  append_vector( &graph, &v );
+    
   return _wrap_py_return_val;
 }
 
@@ -101,20 +103,20 @@ _EXTERN_C_ int MPI_Init(int *argc, char ***argv) {
 _EXTERN_C_ int PMPI_Send(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm);
 _EXTERN_C_ int MPI_Send(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm) { 
   int _wrap_py_return_val = 0, size;
+  vertex v;
 
-  init_tail( __FUNCTION__ );
-
-  /* Recording send/recv operation. */
-  tail->sr = (sendrecv *) malloc( sizeof(sendrecv) );
-  tail->sr->sender_rank = myrank;
-  tail->sr->receiver_rank = dest;
-  tail->sr->tag = tag;
-  MPI_Type_size( datatype, &size );
-  tail->sr->msg_size = count * size;
-
-  tail->start_time = MPI_Wtime();
+  v.start_time = MPI_Wtime();
   _wrap_py_return_val = PMPI_Send(buf, count, datatype, dest, tag, comm);
-  tail->end_time = MPI_Wtime();
+  v.end_time = MPI_Wtime();
+
+  sprintf( v.name, "%s:%d:%d", __FUNCTION__, myrank, sendrecv_id++ );
+  v.sender_rank = myrank;
+  v.receiver_rank = dest;
+  v.tag = tag;
+  MPI_Type_size( datatype, &size ); // get size of message in bytes
+  v.msg_size = count * size;
+  
+  append_vector( &graph, &v );
   
   return _wrap_py_return_val;
 }
@@ -123,21 +125,19 @@ _EXTERN_C_ int MPI_Send(void *buf, int count, MPI_Datatype datatype, int dest, i
 _EXTERN_C_ int PMPI_Recv(void *buf, int count, MPI_Datatype datatype, int source, int tag, MPI_Comm comm, MPI_Status *status);
 _EXTERN_C_ int MPI_Recv(void *buf, int count, MPI_Datatype datatype, int source, int tag, MPI_Comm comm, MPI_Status *status) { 
   int _wrap_py_return_val = 0;
+  vertex v;
 
-  init_tail( __FUNCTION__ );
-
-  /* Recording send/recv operation. */
-  tail->sr = (sendrecv *) malloc( sizeof(sendrecv) );
-  tail->sr->sender_rank = source;
-  tail->sr->receiver_rank = myrank;
-  tail->sr->tag = tag;
-  // ignore message size on the receiver side since it is already stored on the sender side.
-  tail->sr->msg_size = -1; 
-
-  tail->start_time = MPI_Wtime();
+  v.start_time = MPI_Wtime();
   _wrap_py_return_val = PMPI_Recv(buf, count, datatype, source, tag, comm, status);
-  tail->end_time = MPI_Wtime();
+  v.end_time = MPI_Wtime();
+
+  sprintf( v.name, "%s:%d:%d", __FUNCTION__, myrank, sendrecv_id++ );
+  v.sender_rank = source;
+  v.receiver_rank = myrank;
+  v.tag = tag;
   
+  append_vector( &graph, &v );
+
   return _wrap_py_return_val;
 }
 
@@ -145,12 +145,14 @@ _EXTERN_C_ int MPI_Recv(void *buf, int count, MPI_Datatype datatype, int source,
 _EXTERN_C_ int PMPI_Barrier(MPI_Comm comm);
 _EXTERN_C_ int MPI_Barrier(MPI_Comm comm) { 
   int _wrap_py_return_val = 0;
+  vertex v;
 
-  init_tail( __FUNCTION__ );
-  
-  tail->start_time = MPI_Wtime();
+  v.start_time = MPI_Wtime();
   _wrap_py_return_val = PMPI_Barrier(comm);
-  tail->end_time = MPI_Wtime();
+  v.end_time = MPI_Wtime();
+
+  sprintf( v.name, "%s:%d:%d", __FUNCTION__, NO_RANK, collective_id++ );
+  append_vector( &graph, &v );
   
   return _wrap_py_return_val;
 }
@@ -159,13 +161,15 @@ _EXTERN_C_ int MPI_Barrier(MPI_Comm comm) {
 _EXTERN_C_ int PMPI_Alltoall(void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, MPI_Comm comm);
 _EXTERN_C_ int MPI_Alltoall(void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, MPI_Comm comm) { 
   int _wrap_py_return_val = 0;
-
-  init_tail( __FUNCTION__ );
+  vertex v;
   
-  tail->start_time = MPI_Wtime();
+  v.start_time = MPI_Wtime();
   _wrap_py_return_val = PMPI_Alltoall(sendbuf, sendcount, sendtype, recvbuf, recvcount, recvtype, comm);
-  tail->end_time = MPI_Wtime();
-  
+  v.end_time = MPI_Wtime();
+
+  sprintf( v.name, "%s:%d:%d", __FUNCTION__, NO_RANK, collective_id++ );
+  append_vector( &graph, &v );
+
   return _wrap_py_return_val;
 }
 
@@ -173,13 +177,15 @@ _EXTERN_C_ int MPI_Alltoall(void *sendbuf, int sendcount, MPI_Datatype sendtype,
 _EXTERN_C_ int PMPI_Scatter(void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, int root, MPI_Comm comm);
 _EXTERN_C_ int MPI_Scatter(void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, int root, MPI_Comm comm) { 
   int _wrap_py_return_val = 0;
+  vertex v;
 
-  init_tail( __FUNCTION__ );
-
-  tail->start_time = MPI_Wtime();
+  v.start_time = MPI_Wtime();
   _wrap_py_return_val = PMPI_Scatter(sendbuf, sendcount, sendtype, recvbuf, recvcount, recvtype, root, comm);
-  tail->end_time = MPI_Wtime();
-  
+  v.end_time = MPI_Wtime();
+
+  sprintf( v.name, "%s:%d:%d", __FUNCTION__, NO_RANK, collective_id++ );
+  append_vector( &graph, &v );
+
   return _wrap_py_return_val;
 }
 
@@ -187,12 +193,14 @@ _EXTERN_C_ int MPI_Scatter(void *sendbuf, int sendcount, MPI_Datatype sendtype, 
 _EXTERN_C_ int PMPI_Gather(void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, int root, MPI_Comm comm);
 _EXTERN_C_ int MPI_Gather(void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, int root, MPI_Comm comm) { 
   int _wrap_py_return_val = 0;
+  vertex v;
 
-  init_tail( __FUNCTION__ );
-
-  tail->start_time = MPI_Wtime();
+  v.start_time = MPI_Wtime();
   _wrap_py_return_val = PMPI_Gather(sendbuf, sendcount, sendtype, recvbuf, recvcount, recvtype, root, comm);
-  tail->end_time = MPI_Wtime();
+  v.end_time = MPI_Wtime();
+
+  sprintf( v.name, "%s:%d:%d", __FUNCTION__, NO_RANK, collective_id++ );
+  append_vector( &graph, &v );
 
   return _wrap_py_return_val;
 }
@@ -201,12 +209,14 @@ _EXTERN_C_ int MPI_Gather(void *sendbuf, int sendcount, MPI_Datatype sendtype, v
 _EXTERN_C_ int PMPI_Reduce(void *sendbuf, void *recvbuf, int count, MPI_Datatype datatype, MPI_Op op, int root, MPI_Comm comm);
 _EXTERN_C_ int MPI_Reduce(void *sendbuf, void *recvbuf, int count, MPI_Datatype datatype, MPI_Op op, int root, MPI_Comm comm) { 
   int _wrap_py_return_val = 0;
-
-  init_tail( __FUNCTION__ );
+  vertex v;
   
-  tail->start_time = MPI_Wtime();
+  v.start_time = MPI_Wtime();
   _wrap_py_return_val = PMPI_Reduce(sendbuf, recvbuf, count, datatype, op, root, comm);
-  tail->end_time = MPI_Wtime();
+  v.end_time = MPI_Wtime();
+
+  sprintf( v.name, "%s:%d:%d", __FUNCTION__, NO_RANK, collective_id++ );
+  append_vector( &graph, &v );
 
   return _wrap_py_return_val;
 }
@@ -215,12 +225,14 @@ _EXTERN_C_ int MPI_Reduce(void *sendbuf, void *recvbuf, int count, MPI_Datatype 
 _EXTERN_C_ int PMPI_Allreduce(void *sendbuf, void *recvbuf, int count, MPI_Datatype datatype, MPI_Op op, MPI_Comm comm);
 _EXTERN_C_ int MPI_Allreduce(void *sendbuf, void *recvbuf, int count, MPI_Datatype datatype, MPI_Op op, MPI_Comm comm) { 
   int _wrap_py_return_val = 0;
-
-  init_tail( __FUNCTION__ );
-
-  tail->start_time = MPI_Wtime();
+  vertex v;
+  
+  v.start_time = MPI_Wtime();
   _wrap_py_return_val = PMPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm);
-  tail->end_time = MPI_Wtime();
+  v.end_time = MPI_Wtime();
+
+  sprintf( v.name, "%s:%d:%d", __FUNCTION__, NO_RANK, collective_id++ );
+  append_vector( &graph, &v );
 
   return _wrap_py_return_val;
 }
@@ -228,20 +240,21 @@ _EXTERN_C_ int MPI_Allreduce(void *sendbuf, void *recvbuf, int count, MPI_Dataty
 /* ================== C Wrappers for MPI_Isend ================== */
 _EXTERN_C_ int PMPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm, MPI_Request *request);
 _EXTERN_C_ int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, int tag, MPI_Comm comm, MPI_Request *request) { 
-  int _wrap_py_return_val = 0;
+  int _wrap_py_return_val = 0, size;
+  vertex v;
 
-  init_tail( __FUNCTION__ );
-
-  /* Recording send/recv operation. */
-  tail->sr = (sendrecv *) malloc( sizeof(sendrecv) );
-  tail->sr->sender_rank = myrank;
-  tail->sr->receiver_rank = dest;
-  tail->sr->tag = tag;
-  tail->sr->msg_size = count * sizeof(datatype);
-
-  tail->start_time = MPI_Wtime();
+  v.start_time = MPI_Wtime();
   _wrap_py_return_val = PMPI_Isend(buf, count, datatype, dest, tag, comm, request);
-  tail->end_time = MPI_Wtime();
+  v.end_time = MPI_Wtime();
+
+  sprintf( v.name, "%s:%d:%d", __FUNCTION__, myrank, sendrecv_id++ );
+  v.sender_rank = myrank;
+  v.receiver_rank = dest;
+  v.tag = tag;
+  MPI_Type_size( datatype, &size ); // get size of message in bytes
+  v.msg_size = count * size;
+
+  append_vector( &graph, &v );
 
   return _wrap_py_return_val;
 }
@@ -250,12 +263,14 @@ _EXTERN_C_ int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, 
 _EXTERN_C_ int PMPI_Irecv(void *buf, int count, MPI_Datatype datatype, int source, int tag, MPI_Comm comm, MPI_Request *request);
 _EXTERN_C_ int MPI_Irecv(void *buf, int count, MPI_Datatype datatype, int source, int tag, MPI_Comm comm, MPI_Request *request) { 
   int _wrap_py_return_val = 0;
-
-  init_tail( __FUNCTION__ );
+  vertex v;
   
-  tail->start_time = MPI_Wtime();
+  v.start_time = MPI_Wtime();
   _wrap_py_return_val = PMPI_Irecv(buf, count, datatype, source, tag, comm, request);
-  tail->end_time = MPI_Wtime();
+  v.end_time = MPI_Wtime();
+
+  sprintf( v.name, "%s:%d:%d", __FUNCTION__, myrank, sendrecv_id++ );
+  append_vector( &graph, &v );
 
   return _wrap_py_return_val;
 }
@@ -264,21 +279,19 @@ _EXTERN_C_ int MPI_Irecv(void *buf, int count, MPI_Datatype datatype, int source
 _EXTERN_C_ int PMPI_Wait(MPI_Request *request, MPI_Status *status);
 _EXTERN_C_ int MPI_Wait(MPI_Request *request, MPI_Status *status) { 
   int _wrap_py_return_val = 0;
+  vertex v;
 
-  init_tail( __FUNCTION__ );
-
-  /* Recording send/recv operation. */
-  tail->sr = (sendrecv *) malloc( sizeof(sendrecv) );
-  tail->sr->sender_rank = status->MPI_SOURCE;
-  tail->sr->receiver_rank = myrank;
-  tail->sr->tag = status->MPI_TAG;
-  // ignore message size on the receiver side since it is already stored on the sender side.
-  tail->sr->msg_size = -1; 
-
-  tail->start_time = MPI_Wtime();
+  v.start_time = MPI_Wtime();
   _wrap_py_return_val = PMPI_Wait(request, status);
-  tail->end_time = MPI_Wtime();
-  
+  v.end_time = MPI_Wtime();
+
+  sprintf( v.name, "%s:%d:%d", __FUNCTION__, myrank, sendrecv_id++ );
+  v.sender_rank = status->MPI_SOURCE;
+  v.receiver_rank = myrank;
+  v.tag = status->MPI_TAG;
+
+  append_vector( &graph, &v );
+
   return _wrap_py_return_val;
 }
 
@@ -298,32 +311,47 @@ _EXTERN_C_ int MPI_Waitall(int count, MPI_Request *array_of_requests, MPI_Status
 /* ================== C Wrappers for MPI_Finalize ================== */
 _EXTERN_C_ int PMPI_Finalize();
 _EXTERN_C_ int MPI_Finalize() { 
-  int _wrap_py_return_val = 0;
+  int _wrap_py_return_val = 0, i, j;
+  vertex v;
 
-  init_tail( __FUNCTION__ );
+  v.start_time = MPI_Wtime(); // For MPI_Finalize, no need to record end time.
+  sprintf( v.name, "%s:%d", __FUNCTION__, NO_RANK );
+  append_vector( &graph, &v );
 
-  tail->start_time = MPI_Wtime();
-  _wrap_py_return_val = PMPI_Finalize();
-  tail->end_time = MPI_Wtime();
+  /* printf( "size of vector: %d\n", graph.size ); */
+  /* for (i = 0; i < graph.size; ++i) { */
+  /*   printf( "%s %d ", graph.vs[i].name, graph.vs[i].msg_size ); */
+  /* } */
+  /* putchar( '\n' ); */
 
-  fprintf( local_graph, "digraph rank%d {\n", myrank );
-  
-  /* Traverse the local task graph and write each vertex to
-     the local output file, one vertex per line. */
-  vertex * h = &head;
-  while (h != NULL) {
-    if (strcmp(h->name, "MPI_Init") == 0 ||
-	strcmp(h->name, "MPI_Finalize") == 0 ||
-	strncmp(h->name, "MPI_Barrier", strlen("MPI_Barrier")) == 0 ) {
-      fprintf( local_graph, "\t%s_%d [label=\"%s\"];\n", h->name, NO_RANK, h->name );
-    } else {
-      fprintf( local_graph, "\t%s_%d [label=\"%s\"];\n", h->name, myrank, h->name );
+  /* First, send size of vector to rank 0 from other ranks. */
+  if (myrank != 0) {
+    PMPI_Send( &graph.size, 1, MPI_INT, 0, 99, MPI_COMM_WORLD );
+  } else { // for rank 0
+    vec_sizes[ 0 ] = graph.size;
+    graphs[ 0 ] = graph.vs; // assign local graph for rank 0
+    printf( "size of graph of rank %d: %d\n", myrank, vec_sizes[0] );
+    for (i = 1; i < numranks; ++i) { // receive size of vector from other ranks.
+      PMPI_Recv( &vec_sizes[i], 1, MPI_INT, i, 99, MPI_COMM_WORLD, MPI_STATUS_IGNORE );
+      printf( "size of graph of rank %d: %d\n", i, vec_sizes[i] );
+      /* Allocate space for graphs of other ranks. */
+      graphs[ i ] = (vertex *) malloc( sizeof(vertex) * vec_sizes[i] );
     }
-    
-    h = h->next;
   }
-  fprintf( local_graph, "}\n", myrank );
-  fclose( local_graph );
+
+  if (myrank == 0) {
+    for (i = 1; i < numranks; ++i) { // receive graph from other ranks.
+      PMPI_Recv( graphs[i], vec_sizes[i], vertex_type, i, 99, MPI_COMM_WORLD, MPI_STATUS_IGNORE );
+      for (j = 0; j < vec_sizes[i]; ++j) {
+	printf( "%s %d ", graphs[i][j].name, graphs[i][j].msg_size );
+      }
+      putchar('\n');
+    }
+  } else { // other ranks send graph to rank 0
+    PMPI_Send( graph.vs, graph.size, vertex_type, 0, 99, MPI_COMM_WORLD );
+  }
+
+  _wrap_py_return_val = PMPI_Finalize();
 
   return _wrap_py_return_val;
 }

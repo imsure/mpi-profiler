@@ -318,12 +318,6 @@ _EXTERN_C_ int MPI_Finalize() {
   sprintf( v.name, "%s:%d", __FUNCTION__, NO_RANK );
   append_vector( &graph, &v );
 
-  /* printf( "size of vector: %d\n", graph.size ); */
-  /* for (i = 0; i < graph.size; ++i) { */
-  /*   printf( "%s %d ", graph.vs[i].name, graph.vs[i].msg_size ); */
-  /* } */
-  /* putchar( '\n' ); */
-
   /* First, send size of vector to rank 0 from other ranks. */
   if (myrank != 0) {
     PMPI_Send( &graph.size, 1, MPI_INT, 0, 99, MPI_COMM_WORLD );

@@ -1,0 +1,4 @@
+size.time = read.csv( './latency-sendrecv.csv', head=TRUE )
+lm.out = lm(size~time, size.time)
+plot(size.time$size, size.time$time, xlab = 'size(byte)', ylab = 'time(ms)', main='Linear regression for send/recv operation')
+abline(lm.out)

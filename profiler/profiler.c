@@ -11,6 +11,7 @@
 #include <math.h>
 #include "vector.h"
 #include "helpers.h"
+#include "critical_path.h"
 
 #ifndef _EXTERN_C_
 #ifdef __cplusplus
@@ -33,7 +34,7 @@ _EXTERN_C_ void *MPIR_ToPointer(int);
 #pragma weak pmpi_init__
 #endif /* PIC */
 
-#define DEBUG 1
+#define DEBUG 0
 
 #define MPI_Init_Index 0
 #define MPI_Send_Index 1
@@ -51,6 +52,8 @@ static int collective_id = 0; // ID for collective operations
 static vector graph; // vector holding the MPI task graph for every rank
 static int *vec_sizes; // array to hold sizes of vectors of each rank
 static vertex **graphs; // array of vertex *, each of which point to a local graph
+extern node *path;
+extern int path_len;
 
 MPI_Datatype vertex_type;
 
@@ -327,10 +330,10 @@ static void collect_graphs()
   } else { // for rank 0
     vec_sizes[ 0 ] = graph.size;
     graphs[ 0 ] = graph.vs; // assign local graph for rank 0
-    printf( "size of graph of rank %d: %d\n", myrank, vec_sizes[0] );
+    //printf( "size of graph of rank %d: %d\n", myrank, vec_sizes[0] );
     for (i = 1; i < numranks; ++i) { // receive size of vector from other ranks.
       PMPI_Recv( &vec_sizes[i], 1, MPI_INT, i, 99, MPI_COMM_WORLD, MPI_STATUS_IGNORE );
-      printf( "size of graph of rank %d: %d\n", i, vec_sizes[i] );
+      //printf( "size of graph of rank %d: %d\n", i, vec_sizes[i] );
       /* Allocate space for graphs of other ranks. */
       graphs[ i ] = (vertex *) malloc( sizeof(vertex) * vec_sizes[i] );
     }
@@ -412,7 +415,17 @@ static void merge_graphs( FILE *dot )
 	// time spent between two vertex u -> v is from the end of
 	// u to the start of v.
 	time_spent = (int) round( g[j+1].start_time - g[j].end_time );
-	fprintf( dot, "\t\t%s -> %s [label=%d];\n", g[j].name, g[j+1].name, time_spent);
+
+        int t, is_cri = 0;
+	for ( t = path_len-1; t > 0; --t ) {
+	  if (strcmp(g[j].name, path[t].name) == 0 &&
+	      strcmp(g[j+1].name, path[t-1].name) == 0 ) {
+	    is_cri = 1;
+	    fprintf( dot, "\t\t%s -> %s [label=%d,color=red];\n", g[j].name, g[j+1].name, time_spent);
+	  }
+	}
+	if (!is_cri)
+	  fprintf( dot, "\t\t%s -> %s [label=%d];\n", g[j].name, g[j+1].name, time_spent);
       }
     }
     fprintf( dot, "\t}\n" );
@@ -447,8 +460,19 @@ static void merge_graphs( FILE *dot )
 		 g[j].receiver_rank == g2[k].receiver_rank &&
 		 g[j].tag == g2[k].tag ) { // find a match
 
-	      fprintf( dot, "\t%s -> %s [label=\"%d(%d)\"];\n",
-		       g[j].name, g2[k].name, latency, msg_size);
+	      int t, is_cri = 0;
+	      for ( t = path_len-1; t > 0; --t ) {
+		if (strcmp(g[j].name, path[t].name) == 0 &&
+		    strcmp(g2[k].name, path[t-1].name) == 0 ) {
+		  is_cri = 1;
+		  fprintf( dot, "\t%s -> %s [label=\"%d(%d)\",color=red];\n",
+			   g[j].name, g2[k].name, latency, msg_size);
+		}
+	      }
+	      if (!is_cri)
+		fprintf( dot, "\t%s -> %s [label=\"%d(%d)\"];\n",
+			 g[j].name, g2[k].name, latency, msg_size);
+
 	      indexes[ rank2 ]++;
 	      break;
 	    }
@@ -473,7 +497,17 @@ static void merge_graphs( FILE *dot )
 	// time spent between two vertex u -> v is from the end of
 	// u to the start of v.
 	time_spent = (int) round( g[j+1].start_time - g[j].end_time );
-	fprintf( dot, "\t%s -> %s [label=%d];\n", g[j].name, g[j+1].name, time_spent);
+
+	int t, is_cri = 0;
+	for ( t = path_len; t > 0; --t ) {
+	  if (strcmp(g[j].name, path[t].name) == 0 &&
+	      strcmp(g[j+1].name, path[t-1].name) == 0 ) {
+	    is_cri = 1;
+	    fprintf( dot, "\t%s -> %s [label=%d,color=red];\n", g[j].name, g[j+1].name, time_spent);
+	  }
+	}
+	if (!is_cri)
+	  fprintf( dot, "\t%s -> %s [label=%d];\n", g[j].name, g[j+1].name, time_spent);
       }
     }
   }  
@@ -495,9 +529,11 @@ _EXTERN_C_ int MPI_Finalize() {
   collect_graphs(); // Let rank 0 collects graphs from other ranks.
 
   if ( myrank == 0 ) {
+    find_critical_path( graphs, vec_sizes, numranks );
     dotfile = fopen( "graph.dot", "w" );
     // Let rank 0 merge local graphs into one graph and output it to dot file.
     merge_graphs( dotfile );
+
   }
 
   cleanup();

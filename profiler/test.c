@@ -117,6 +117,9 @@ void test_case1( int myrank, int numranks )
     }
   }
 
+  if (myrank == 1)
+    sleep( 1 );
+
   MPI_Scatter( scatter_buf, bufsize_scatter, MPI_INT, recvbuf,
 	       bufsize_scatter, MPI_INT, 0, MPI_COMM_WORLD );
 #if DEBUG

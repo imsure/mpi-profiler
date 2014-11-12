@@ -14,5 +14,7 @@ int is_send_oper( const char *name );
 int is_block_recv_oper( const char *name );
 
 int sendrecv_latency( int size );
-  
+
+int is_collective_oper( const char *name );
+
 #endif

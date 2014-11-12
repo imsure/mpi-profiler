@@ -18,17 +18,17 @@ digraph {
 	subgraph cluster_1 {
 		label = "rank 1"
 		color = white
-		MPI_Recv_1_0 -> MPI_Isend_1_1 [label=0];
-		MPI_Isend_1_1 -> MPI_Wait_1_2 [label=0];
+		MPI_Recv_1_0 -> MPI_Isend_1_1 [label=0,color=red];
+		MPI_Isend_1_1 -> MPI_Wait_1_2 [label=0,color=red];
 	}
 
-	MPI_Send_0_0 -> MPI_Recv_1_0 [label="1(40000)"];
+	MPI_Send_0_0 -> MPI_Recv_1_0 [label="1(40000)",color=red];
 	MPI_Isend_1_1 -> MPI_Wait_0_2 [label="9(960000)"];
 
-	MPI_Init -> MPI_Send_0_0 [label=0];
+	MPI_Init -> MPI_Send_0_0 [label=0,color=red];
 	MPI_Wait_0_2 -> MPI_Barrier_0 [label=0];
-	MPI_Barrier_0 -> MPI_Finalize [label=0];
+	MPI_Barrier_0 -> MPI_Finalize [label=0,color=red];
 	MPI_Init -> MPI_Recv_1_0 [label=0];
-	MPI_Wait_1_2 -> MPI_Barrier_0 [label=2];
-	MPI_Barrier_0 -> MPI_Finalize [label=0];
+	MPI_Wait_1_2 -> MPI_Barrier_0 [label=2,color=red];
+	MPI_Barrier_0 -> MPI_Finalize [label=0,color=red];
 }

@@ -72,6 +72,19 @@ int is_block_recv_oper( const char *name )
   return 0;
 }
 
+int is_collective_oper( const char *name )
+{
+  if ( strncmp(name, "MPI_Init", strlen("MPI_Init")) == 0 ) {
+    return 0;
+  }
+
+  if ( is_sendrecv_oper(name) ) {
+    return 0;
+  }
+
+  return 1;
+}
+
 /* Return message latency in ms given input byte size. */
 int sendrecv_latency( int size )
 {

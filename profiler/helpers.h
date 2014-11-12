@@ -12,5 +12,7 @@ int is_send_oper( const char *name );
 
 /* Decide if the 'name' is a blocking receving operation. */
 int is_block_recv_oper( const char *name );
+
+int sendrecv_latency( int size );
   
 #endif

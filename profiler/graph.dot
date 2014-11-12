@@ -48,13 +48,13 @@ digraph {
 		MPI_Recv_2_3 -> MPI_Recv_2_4 [label=0];
 	}
 
-	MPI_Send_0_0 -> MPI_Recv_1_0 [label=8000];
-	MPI_Send_0_3 -> MPI_Recv_2_2 [label=3000];
-	MPI_Send_0_4 -> MPI_Recv_2_3 [label=3000];
-	MPI_Send_0_5 -> MPI_Recv_2_4 [label=3000];
-	MPI_Send_1_3 -> MPI_Wait_0_2 [label=8000];
-	MPI_Isend_1_4 -> MPI_Recv_2_1 [label=40000];
-	MPI_Send_2_0 -> MPI_Wait_1_2 [label=40000];
+	MPI_Send_0_0 -> MPI_Recv_1_0 [label="0(8000)"];
+	MPI_Send_0_3 -> MPI_Recv_2_2 [label="0(3000)"];
+	MPI_Send_0_4 -> MPI_Recv_2_3 [label="0(3000)"];
+	MPI_Send_0_5 -> MPI_Recv_2_4 [label="0(3000)"];
+	MPI_Send_1_3 -> MPI_Wait_0_2 [label="0(8000)"];
+	MPI_Isend_1_4 -> MPI_Recv_2_1 [label="1(40000)"];
+	MPI_Send_2_0 -> MPI_Wait_1_2 [label="1(40000)"];
 
 	MPI_Init -> MPI_Send_0_0 [label=0];
 	MPI_Send_0_5 -> MPI_Barrier_0 [label=0];

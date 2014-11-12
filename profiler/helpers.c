@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 const char * get_label( const char *name )
 {
@@ -71,3 +72,10 @@ int is_block_recv_oper( const char *name )
   return 0;
 }
 
+/* Return message latency in ms given input byte size. */
+int sendrecv_latency( int size )
+{
+  int latency;
+  latency = (int) round( 8.595e-06 * size + 3.262e-01 );
+  return latency;
+}

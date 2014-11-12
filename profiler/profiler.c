@@ -118,12 +118,12 @@ _EXTERN_C_ int MPI_Send(void *buf, int count, MPI_Datatype datatype, int dest, i
   _wrap_py_return_val = PMPI_Send(buf, count, datatype, dest, tag, comm);
   v.end_time = MPI_Wtime();
 
-  sprintf( v.name, "%s_%d_%d", __FUNCTION__, myrank, sendrecv_id++ );
   v.sender_rank = myrank;
   v.receiver_rank = dest;
   v.tag = tag;
   MPI_Type_size( datatype, &size ); // get size of message in bytes
   v.msg_size = count * size;
+  sprintf( v.name, "%s_%d_%d", __FUNCTION__, myrank, sendrecv_id++ );
   
   append_vector( &graph, &v );
   
@@ -256,12 +256,12 @@ _EXTERN_C_ int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, 
   _wrap_py_return_val = PMPI_Isend(buf, count, datatype, dest, tag, comm, request);
   v.end_time = MPI_Wtime();
 
-  sprintf( v.name, "%s_%d_%d", __FUNCTION__, myrank, sendrecv_id++ );
   v.sender_rank = myrank;
   v.receiver_rank = dest;
   v.tag = tag;
   MPI_Type_size( datatype, &size ); // get size of message in bytes
   v.msg_size = count * size;
+  sprintf( v.name, "%s_%d_%d", __FUNCTION__, myrank, sendrecv_id++ );
 
   append_vector( &graph, &v );
 
@@ -432,9 +432,10 @@ static void merge_graphs( FILE *dot )
       name = g[ j ].name;
       if ( is_send_oper(name) ) {
 	vertex *g2;
-	int k, rank2;
+	int k, rank2, latency;
 
 	msg_size = g[ j ].msg_size;
+	latency = sendrecv_latency( msg_size );
 	rank2 = g[ j ].receiver_rank;
 	g2 = graphs[ rank2 ]; // get the graph of the receiver rank.
 
@@ -446,7 +447,8 @@ static void merge_graphs( FILE *dot )
 		 g[j].receiver_rank == g2[k].receiver_rank &&
 		 g[j].tag == g2[k].tag ) { // find a match
 
-	      fprintf( dot, "\t%s -> %s [label=%d];\n", g[j].name, g2[k].name, msg_size);
+	      fprintf( dot, "\t%s -> %s [label=\"%d(%d)\"];\n",
+		       g[j].name, g2[k].name, latency, msg_size);
 	      indexes[ rank2 ]++;
 	      break;
 	    }

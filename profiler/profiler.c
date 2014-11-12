@@ -1,9 +1,16 @@
+/**
+ * A simple MPI Profiler.
+ *
+ * Author: Shuo Yang
+ */
 
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "vector.h"
+#include "helpers.h"
 
 #ifndef _EXTERN_C_
 #ifdef __cplusplus
@@ -25,6 +32,8 @@ _EXTERN_C_ void *MPIR_ToPointer(int);
 #pragma weak pmpi_init_
 #pragma weak pmpi_init__
 #endif /* PIC */
+
+#define DEBUG 1
 
 #define MPI_Init_Index 0
 #define MPI_Send_Index 1
@@ -93,7 +102,7 @@ _EXTERN_C_ int MPI_Init(int *argc, char ***argv) {
   graphs = (vertex **) malloc( numranks * sizeof(vertex *) );
 
   init_vector( &graph, INIT_CAPACITY );
-  sprintf( v.name, "%s:-1", __FUNCTION__ );
+  sprintf( v.name, "%s", __FUNCTION__ );
   append_vector( &graph, &v );
     
   return _wrap_py_return_val;
@@ -109,7 +118,7 @@ _EXTERN_C_ int MPI_Send(void *buf, int count, MPI_Datatype datatype, int dest, i
   _wrap_py_return_val = PMPI_Send(buf, count, datatype, dest, tag, comm);
   v.end_time = MPI_Wtime();
 
-  sprintf( v.name, "%s:%d:%d", __FUNCTION__, myrank, sendrecv_id++ );
+  sprintf( v.name, "%s_%d_%d", __FUNCTION__, myrank, sendrecv_id++ );
   v.sender_rank = myrank;
   v.receiver_rank = dest;
   v.tag = tag;
@@ -131,7 +140,7 @@ _EXTERN_C_ int MPI_Recv(void *buf, int count, MPI_Datatype datatype, int source,
   _wrap_py_return_val = PMPI_Recv(buf, count, datatype, source, tag, comm, status);
   v.end_time = MPI_Wtime();
 
-  sprintf( v.name, "%s:%d:%d", __FUNCTION__, myrank, sendrecv_id++ );
+  sprintf( v.name, "%s_%d_%d", __FUNCTION__, myrank, sendrecv_id++ );
   v.sender_rank = source;
   v.receiver_rank = myrank;
   v.tag = tag;
@@ -151,7 +160,7 @@ _EXTERN_C_ int MPI_Barrier(MPI_Comm comm) {
   _wrap_py_return_val = PMPI_Barrier(comm);
   v.end_time = MPI_Wtime();
 
-  sprintf( v.name, "%s:%d:%d", __FUNCTION__, NO_RANK, collective_id++ );
+  sprintf( v.name, "%s_%d", __FUNCTION__, collective_id++ );
   append_vector( &graph, &v );
   
   return _wrap_py_return_val;
@@ -167,7 +176,7 @@ _EXTERN_C_ int MPI_Alltoall(void *sendbuf, int sendcount, MPI_Datatype sendtype,
   _wrap_py_return_val = PMPI_Alltoall(sendbuf, sendcount, sendtype, recvbuf, recvcount, recvtype, comm);
   v.end_time = MPI_Wtime();
 
-  sprintf( v.name, "%s:%d:%d", __FUNCTION__, NO_RANK, collective_id++ );
+  sprintf( v.name, "%s_%d", __FUNCTION__, collective_id++ );
   append_vector( &graph, &v );
 
   return _wrap_py_return_val;
@@ -183,7 +192,7 @@ _EXTERN_C_ int MPI_Scatter(void *sendbuf, int sendcount, MPI_Datatype sendtype, 
   _wrap_py_return_val = PMPI_Scatter(sendbuf, sendcount, sendtype, recvbuf, recvcount, recvtype, root, comm);
   v.end_time = MPI_Wtime();
 
-  sprintf( v.name, "%s:%d:%d", __FUNCTION__, NO_RANK, collective_id++ );
+  sprintf( v.name, "%s_%d", __FUNCTION__, collective_id++ );
   append_vector( &graph, &v );
 
   return _wrap_py_return_val;
@@ -199,7 +208,7 @@ _EXTERN_C_ int MPI_Gather(void *sendbuf, int sendcount, MPI_Datatype sendtype, v
   _wrap_py_return_val = PMPI_Gather(sendbuf, sendcount, sendtype, recvbuf, recvcount, recvtype, root, comm);
   v.end_time = MPI_Wtime();
 
-  sprintf( v.name, "%s:%d:%d", __FUNCTION__, NO_RANK, collective_id++ );
+  sprintf( v.name, "%s_%d", __FUNCTION__, collective_id++ );
   append_vector( &graph, &v );
 
   return _wrap_py_return_val;
@@ -215,7 +224,7 @@ _EXTERN_C_ int MPI_Reduce(void *sendbuf, void *recvbuf, int count, MPI_Datatype 
   _wrap_py_return_val = PMPI_Reduce(sendbuf, recvbuf, count, datatype, op, root, comm);
   v.end_time = MPI_Wtime();
 
-  sprintf( v.name, "%s:%d:%d", __FUNCTION__, NO_RANK, collective_id++ );
+  sprintf( v.name, "%s_%d", __FUNCTION__, collective_id++ );
   append_vector( &graph, &v );
 
   return _wrap_py_return_val;
@@ -231,7 +240,7 @@ _EXTERN_C_ int MPI_Allreduce(void *sendbuf, void *recvbuf, int count, MPI_Dataty
   _wrap_py_return_val = PMPI_Allreduce(sendbuf, recvbuf, count, datatype, op, comm);
   v.end_time = MPI_Wtime();
 
-  sprintf( v.name, "%s:%d:%d", __FUNCTION__, NO_RANK, collective_id++ );
+  sprintf( v.name, "%s_%d", __FUNCTION__, collective_id++ );
   append_vector( &graph, &v );
 
   return _wrap_py_return_val;
@@ -247,7 +256,7 @@ _EXTERN_C_ int MPI_Isend(void *buf, int count, MPI_Datatype datatype, int dest, 
   _wrap_py_return_val = PMPI_Isend(buf, count, datatype, dest, tag, comm, request);
   v.end_time = MPI_Wtime();
 
-  sprintf( v.name, "%s:%d:%d", __FUNCTION__, myrank, sendrecv_id++ );
+  sprintf( v.name, "%s_%d_%d", __FUNCTION__, myrank, sendrecv_id++ );
   v.sender_rank = myrank;
   v.receiver_rank = dest;
   v.tag = tag;
@@ -269,7 +278,7 @@ _EXTERN_C_ int MPI_Irecv(void *buf, int count, MPI_Datatype datatype, int source
   _wrap_py_return_val = PMPI_Irecv(buf, count, datatype, source, tag, comm, request);
   v.end_time = MPI_Wtime();
 
-  sprintf( v.name, "%s:%d:%d", __FUNCTION__, myrank, sendrecv_id++ );
+  sprintf( v.name, "%s_%d_%d", __FUNCTION__, myrank, sendrecv_id++ );
   append_vector( &graph, &v );
 
   return _wrap_py_return_val;
@@ -285,7 +294,7 @@ _EXTERN_C_ int MPI_Wait(MPI_Request *request, MPI_Status *status) {
   _wrap_py_return_val = PMPI_Wait(request, status);
   v.end_time = MPI_Wtime();
 
-  sprintf( v.name, "%s:%d:%d", __FUNCTION__, myrank, sendrecv_id++ );
+  sprintf( v.name, "%s_%d_%d", __FUNCTION__, myrank, sendrecv_id++ );
   v.sender_rank = status->MPI_SOURCE;
   v.receiver_rank = myrank;
   v.tag = status->MPI_TAG;
@@ -308,15 +317,9 @@ _EXTERN_C_ int MPI_Waitall(int count, MPI_Request *array_of_requests, MPI_Status
   return _wrap_py_return_val;
 }
 
-/* ================== C Wrappers for MPI_Finalize ================== */
-_EXTERN_C_ int PMPI_Finalize();
-_EXTERN_C_ int MPI_Finalize() { 
-  int _wrap_py_return_val = 0, i, j;
-  vertex v;
-
-  v.start_time = MPI_Wtime(); // For MPI_Finalize, no need to record end time.
-  sprintf( v.name, "%s:%d", __FUNCTION__, NO_RANK );
-  append_vector( &graph, &v );
+static void collect_graphs()
+{
+  int i,j;
 
   /* First, send size of vector to rank 0 from other ranks. */
   if (myrank != 0) {
@@ -335,16 +338,25 @@ _EXTERN_C_ int MPI_Finalize() {
 
   if (myrank == 0) {
     for (i = 1; i < numranks; ++i) { // receive graph from other ranks.
+      // grapns[i] holds local graph for the rank i.
       PMPI_Recv( graphs[i], vec_sizes[i], vertex_type, i, 99, MPI_COMM_WORLD, MPI_STATUS_IGNORE );
+    }
+#if DEBUG
+    for (i = 0; i < numranks; ++i) { 
       for (j = 0; j < vec_sizes[i]; ++j) {
 	printf( "%s %d ", graphs[i][j].name, graphs[i][j].msg_size );
       }
       putchar('\n');
     }
+#endif
   } else { // other ranks send graph to rank 0
     PMPI_Send( graph.vs, graph.size, vertex_type, 0, 99, MPI_COMM_WORLD );
   }
+}
 
+static void cleanup()
+{
+  int i;
   /* Clean up ... */
   MPI_Type_free( &vertex_type ); // clean up the constructed MPI type.
   free_vector( &graph ); // free vector
@@ -355,6 +367,113 @@ _EXTERN_C_ int MPI_Finalize() {
     free( vec_sizes );
     free( graphs );
   }
+}
+
+static void merge_graphs( FILE *dot )
+{
+  int i, j, msg_size, time_spent;
+  vertex *g;
+  char *name;
+  int *indexes; // indexes holding the start index from which to traverse.
+
+  fprintf( dot, "digraph {\n" );  
+  /* First pass: collect vertices and attach labels. */
+
+  // Go through graph for rank 0 and output every vertex to file.
+  g = graphs[ 0 ];
+  for ( j = 0; j < vec_sizes[0]; ++j ) {
+    name = g[ j ].name;
+    fprintf( dot, "\t%s [label=\"%s\"];\n", name, get_label(name) );
+  }
+
+  // Go through graphs of other ranks, only collect send/recv operations.
+  for ( i = 1; i < numranks; ++i ) {
+    g = graphs[ i ];
+    for ( j = 0; j < vec_sizes[i]; ++j ) {
+      name = g[ j ].name;
+      if ( is_sendrecv_oper( name ) ) {
+	fprintf( dot, "\t%s [label=\"%s\"];\n", name, get_label(name) );
+      }
+    }
+  }
+
+  fprintf( dot, "\n" );
+  /* Second pass: collect edges local to individual graphs. */
+
+  for ( i = 0; i < numranks; ++i ) {
+    g = graphs[ i ];
+    for ( j = 0; j < vec_sizes[i] - 1; ++j ) {
+      // time spent between two vertex u -> v is from the end of
+      // u to the start of v.
+      time_spent = (int) round( g[j+1].start_time - g[j].end_time );
+      fprintf( dot, "\t%s -> %s [label=%d];\n", g[j].name, g[j+1].name, time_spent);
+    }
+  }
+
+  fprintf( dot, "\n" );
+  /* Third pass: collect edges between local graphs. */
+
+  indexes = (int *) malloc( numranks * sizeof(int) );
+  for ( i = 0; i < numranks; ++i ) {
+    indexes[ i ] = 0; // always traverse from the beginning.
+  }
+
+  for ( i = 0; i < numranks; ++i ) {
+    g = graphs[ i ];
+    for ( j = 0; j < vec_sizes[i]; ++j ) {
+      name = g[ j ].name;
+      if ( is_send_oper(name) ) {
+	vertex *g2;
+	int k, rank2;
+
+	msg_size = g[ j ].msg_size;
+	rank2 = g[ j ].receiver_rank;
+	g2 = graphs[ rank2 ]; // get the graph of the receiver rank.
+
+	// Go through the graph of receiver rank, find the match receving
+	// operations, either MPI_Recv or MPI_Wait.
+	for ( k = indexes[rank2]; k < vec_sizes[rank2]; ++k ) {
+	  if ( is_block_recv_oper( g2[k].name ) ) {
+	    if ( g[j].sender_rank == g2[k].sender_rank &&
+		 g[j].receiver_rank == g2[k].receiver_rank &&
+		 g[j].tag == g2[k].tag ) { // find a match
+
+	      fprintf( dot, "\t%s -> %s [label=%d];\n", g[j].name, g2[k].name, msg_size);
+	    }
+	  }
+	  indexes[ rank2 ]++;
+	}
+      }
+    }
+    // Reset indexes for the next graph.
+    for ( j = 0; j < numranks; ++j ) {
+      indexes[ j ] = 0; 
+    }
+  }
+
+  fprintf( dot, "}\n" );  
+}
+
+/* ================== C Wrappers for MPI_Finalize ================== */
+_EXTERN_C_ int PMPI_Finalize();
+_EXTERN_C_ int MPI_Finalize() { 
+  int _wrap_py_return_val = 0, i, j;
+  vertex v;
+  FILE *dotfile;
+
+  v.start_time = MPI_Wtime(); // For MPI_Finalize, no need to record end time.
+  sprintf( v.name, "%s", __FUNCTION__ );
+  append_vector( &graph, &v );
+
+  collect_graphs(); // Let rank 0 collects graphs from other ranks.
+
+  if ( myrank == 0 ) {
+    dotfile = fopen( "graph.dot", "w" );
+    // Let rank 0 merge local graphs into one graph and output it to dot file.
+    merge_graphs( dotfile );
+  }
+
+  cleanup();
   _wrap_py_return_val = PMPI_Finalize();
 
   return _wrap_py_return_val;

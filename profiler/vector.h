@@ -33,27 +33,27 @@ struct vertex {
      in the (merged) task graph. We encode name as follows:
      1. For MPI_Init & MPI_Finalize, the encoding is:
      
-        MPI_Init:-1
-	MPI_Finalize:-1
+        MPI_Init
+	MPI_Finalize
 	
-	(Since the final merged graph will have only one MPI_Init &
-	MPI_Finalize, so we use -1 to ignore the rank number)
+	The final merged graph will have only one MPI_Init &
+	MPI_Finalize.
 	
      2. For MPI collectives, the encoding is:
      
-        collective_name:-1:counter
+        collective_name_counter
 	
-	Ex. MPI_Barrier:-1:1 means MPI_Barrier was the first collective
+	Ex. MPI_Barrier_1 means MPI_Barrier was the first collective
 	operation called by all ranks.
-	MPI_Scatter:-1:2 means MPI_Scatter was the second collective
+	MPI_Scatter_2 means MPI_Scatter was the second collective
 	operation called by all ranks.
 	We will have a counter for all collectives.
 	
      3. For other supported MPI operations, the encoding is:
      
-        collective_name:rank_number:id
+        operation_name_rank_number_id
 
-	Ex. MPI_Send:0:1 means MPI_Send was called by rank 0 with id 1.
+	Ex. MPI_Send_0_1 means MPI_Send was called by rank 0 with id 1.
 	id is used to identify operations inside a rank. It increments by 1
 	each time an MPI operation other than MPI_Init, MPI_Finalized or
 	MPI Collective is called.

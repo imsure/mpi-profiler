@@ -9,7 +9,7 @@
 #include <unistd.h>
 
 #define MYTAG 99
-#define DEBUG 1
+#define DEBUG 0
 
 int main( int argc, char *argv[] )
 {

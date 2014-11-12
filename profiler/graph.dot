@@ -3,6 +3,9 @@ digraph {
 	MPI_Send_0_0 [label="MPI_Send"];
 	MPI_Irecv_0_1 [label="MPI_Irecv"];
 	MPI_Wait_0_2 [label="MPI_Wait"];
+	MPI_Send_0_3 [label="MPI_Send"];
+	MPI_Send_0_4 [label="MPI_Send"];
+	MPI_Send_0_5 [label="MPI_Send"];
 	MPI_Barrier_0 [label="MPI_Barrier"];
 	MPI_Scatter_1 [label="MPI_Scatter"];
 	MPI_Finalize [label="MPI_Finalize"];
@@ -14,30 +17,55 @@ digraph {
 	MPI_Wait_1_5 [label="MPI_Wait"];
 	MPI_Send_2_0 [label="MPI_Send"];
 	MPI_Recv_2_1 [label="MPI_Recv"];
+	MPI_Recv_2_2 [label="MPI_Recv"];
+	MPI_Recv_2_3 [label="MPI_Recv"];
+	MPI_Recv_2_4 [label="MPI_Recv"];
+
+	subgraph cluster_0 {
+		label = "rank 0"
+		color = white
+		MPI_Send_0_0 -> MPI_Irecv_0_1 [label=0];
+		MPI_Irecv_0_1 -> MPI_Wait_0_2 [label=0];
+		MPI_Wait_0_2 -> MPI_Send_0_3 [label=0];
+		MPI_Send_0_3 -> MPI_Send_0_4 [label=0];
+		MPI_Send_0_4 -> MPI_Send_0_5 [label=0];
+	}
+	subgraph cluster_1 {
+		label = "rank 1"
+		color = white
+		MPI_Recv_1_0 -> MPI_Irecv_1_1 [label=0];
+		MPI_Irecv_1_1 -> MPI_Wait_1_2 [label=0];
+		MPI_Wait_1_2 -> MPI_Send_1_3 [label=0];
+		MPI_Send_1_3 -> MPI_Isend_1_4 [label=0];
+		MPI_Isend_1_4 -> MPI_Wait_1_5 [label=0];
+	}
+	subgraph cluster_2 {
+		label = "rank 2"
+		color = white
+		MPI_Send_2_0 -> MPI_Recv_2_1 [label=0];
+		MPI_Recv_2_1 -> MPI_Recv_2_2 [label=0];
+		MPI_Recv_2_2 -> MPI_Recv_2_3 [label=0];
+		MPI_Recv_2_3 -> MPI_Recv_2_4 [label=0];
+	}
+
+	MPI_Send_0_0 -> MPI_Recv_1_0 [label=8000];
+	MPI_Send_0_3 -> MPI_Recv_2_2 [label=3000];
+	MPI_Send_0_4 -> MPI_Recv_2_3 [label=3000];
+	MPI_Send_0_5 -> MPI_Recv_2_4 [label=3000];
+	MPI_Send_1_3 -> MPI_Wait_0_2 [label=8000];
+	MPI_Isend_1_4 -> MPI_Recv_2_1 [label=40000];
+	MPI_Send_2_0 -> MPI_Wait_1_2 [label=40000];
 
 	MPI_Init -> MPI_Send_0_0 [label=0];
-	MPI_Send_0_0 -> MPI_Irecv_0_1 [label=0];
-	MPI_Irecv_0_1 -> MPI_Wait_0_2 [label=0];
-	MPI_Wait_0_2 -> MPI_Barrier_0 [label=0];
+	MPI_Send_0_5 -> MPI_Barrier_0 [label=0];
 	MPI_Barrier_0 -> MPI_Scatter_1 [label=0];
 	MPI_Scatter_1 -> MPI_Finalize [label=0];
 	MPI_Init -> MPI_Recv_1_0 [label=0];
-	MPI_Recv_1_0 -> MPI_Irecv_1_1 [label=0];
-	MPI_Irecv_1_1 -> MPI_Wait_1_2 [label=0];
-	MPI_Wait_1_2 -> MPI_Send_1_3 [label=0];
-	MPI_Send_1_3 -> MPI_Isend_1_4 [label=0];
-	MPI_Isend_1_4 -> MPI_Wait_1_5 [label=0];
 	MPI_Wait_1_5 -> MPI_Barrier_0 [label=0];
 	MPI_Barrier_0 -> MPI_Scatter_1 [label=0];
 	MPI_Scatter_1 -> MPI_Finalize [label=0];
 	MPI_Init -> MPI_Send_2_0 [label=0];
-	MPI_Send_2_0 -> MPI_Recv_2_1 [label=0];
-	MPI_Recv_2_1 -> MPI_Barrier_0 [label=0];
+	MPI_Recv_2_4 -> MPI_Barrier_0 [label=0];
 	MPI_Barrier_0 -> MPI_Scatter_1 [label=0];
 	MPI_Scatter_1 -> MPI_Finalize [label=0];
-
-	MPI_Send_0_0 -> MPI_Recv_1_0 [label=8000];
-	MPI_Send_1_3 -> MPI_Wait_0_2 [label=8000];
-	MPI_Isend_1_4 -> MPI_Recv_2_1 [label=40000];
-	MPI_Send_2_0 -> MPI_Wait_1_2 [label=40000];
 }

@@ -398,16 +398,24 @@ static void merge_graphs( FILE *dot )
   }
 
   fprintf( dot, "\n" );
-  /* Second pass: collect edges local to individual graphs. */
+  /* Second pass: collect edges local to individual graphs.
+     Ignore MPI_Init and Finalize and all collectives in this pass. */
 
   for ( i = 0; i < numranks; ++i ) {
+    fprintf( dot, "\tsubgraph cluster_%d {\n", i );
+    fprintf( dot, "\t\tlabel = \"rank %d\"\n", i );
+    fprintf( dot, "\t\tcolor = white\n" );
     g = graphs[ i ];
-    for ( j = 0; j < vec_sizes[i] - 1; ++j ) {
-      // time spent between two vertex u -> v is from the end of
-      // u to the start of v.
-      time_spent = (int) round( g[j+1].start_time - g[j].end_time );
-      fprintf( dot, "\t%s -> %s [label=%d];\n", g[j].name, g[j+1].name, time_spent);
+    for ( j = 1; j < vec_sizes[i] - 2; ++j ) {
+      if ( is_sendrecv_oper(g[j].name) &&
+	   is_sendrecv_oper(g[j+1].name) ) {
+	// time spent between two vertex u -> v is from the end of
+	// u to the start of v.
+	time_spent = (int) round( g[j+1].start_time - g[j].end_time );
+	fprintf( dot, "\t\t%s -> %s [label=%d];\n", g[j].name, g[j+1].name, time_spent);
+      }
     }
+    fprintf( dot, "\t}\n" );
   }
 
   fprintf( dot, "\n" );
@@ -439,6 +447,8 @@ static void merge_graphs( FILE *dot )
 		 g[j].tag == g2[k].tag ) { // find a match
 
 	      fprintf( dot, "\t%s -> %s [label=%d];\n", g[j].name, g2[k].name, msg_size);
+	      indexes[ rank2 ]++;
+	      break;
 	    }
 	  }
 	  indexes[ rank2 ]++;
@@ -450,6 +460,21 @@ static void merge_graphs( FILE *dot )
       indexes[ j ] = 0; 
     }
   }
+
+  fprintf( dot, "\n" );
+  /* Final pass: connect vertices in the cluster to collectives. */
+  for ( i = 0; i < numranks; ++i ) {
+    g = graphs[ i ];
+    for ( j = 0; j < vec_sizes[i] - 1; ++j ) {
+      if ( !is_sendrecv_oper(g[j].name) ||
+	   !is_sendrecv_oper(g[j+1].name) ) {
+	// time spent between two vertex u -> v is from the end of
+	// u to the start of v.
+	time_spent = (int) round( g[j+1].start_time - g[j].end_time );
+	fprintf( dot, "\t%s -> %s [label=%d];\n", g[j].name, g[j+1].name, time_spent);
+      }
+    }
+  }  
 
   fprintf( dot, "}\n" );  
 }

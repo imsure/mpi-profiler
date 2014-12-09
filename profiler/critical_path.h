@@ -1,35 +1,31 @@
 #ifndef _CRITICAL_PATH_H
 #define _CRITICAL_PATH_H
 
-typedef struct node node;
-typedef struct edge edge;
+typedef struct Edge Edge;
 typedef struct Graph Graph;
-typedef struct longest longest;
+typedef struct AdjList AdjList;
+typedef struct Index2Name Index2Name;
 
-struct node {
-  char name[32];
+struct Index2Name {
+  int index;
+  char name[ 32 ];
 };
 
-struct edge {
-  node from;
-  node to;
-  int weight; // in ms
-  int removed; // indicate whether it has been removed
-  int ignore;
+struct AdjList {
+  char src[ 32 ];
+  Edge *edges;
+  int NumEdges;
+};
+
+struct Edge {
+  char dest[ 32 ];
+  int time; // in ms
   int msgsize;
 };
 
-/* G = (V, E) */
 struct Graph {
-  node *nodes;
-  edge *edges;
-  int edge_count;
-  int node_count;
-};
-
-struct longest {
-  node nd;
-  int len;
+  int NumNodes;
+  AdjList **adjlist;
 };
 
 void find_critical_path( vertex **graphs, int *sizes, int numranks );

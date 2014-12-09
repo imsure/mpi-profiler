@@ -80,4 +80,6 @@ void resize_vector( vector * vec );
 /* Cleaup up vector 'vec' */
 void free_vector( vector * vec );
 
+void print_vertex( vertex *v );
+
 #endif // _VECTOR_H_

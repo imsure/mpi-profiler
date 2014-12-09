@@ -48,6 +48,21 @@ int is_sendrecv_oper( const char *name )
   return 0;
 }
 
+int is_recv_oper( const char *name )
+{
+  if ( strncmp(name, "MPI_Recv", strlen("MPI_Recv")) == 0 ) {
+    return 1;
+  }
+  if ( strncmp(name, "MPI_Irecv", strlen("MPI_Irecv")) == 0 ) {
+    return 1;
+  }
+  if ( strncmp(name, "MPI_Wait", strlen("MPI_Wait")) == 0 ) {
+    return 1;
+  }
+
+  return 0;
+}
+
 int is_send_oper( const char *name )
 {
   if ( strncmp(name, "MPI_Send", strlen("MPI_Send")) == 0 ) {

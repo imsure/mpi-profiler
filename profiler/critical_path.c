@@ -7,29 +7,32 @@
 #include "helpers.h"
 #include "critical_path.h"
 
-#define DEBUG 0
+#define DEBUG 1
 
-longest *lon;
-node *path;
-int path_len;
 Graph G;
+Index2Name *i2n;
 
+static int GetNodeIndex( char *name );
 static void toposort();
 
 static void print_graph()
 {
-  int i,j;
-  for ( i = 0; i < G.node_count; ++i ) {
-    printf( "Node %s\n", G.nodes[i].name );
-  }
-  for ( i = 0; i < G.edge_count; ++i ) {
-    printf( "Edge %s -> %s (%d removed=%d ignore=%d)\n", G.edges[i].from.name,
-	    G.edges[i].to.name, G.edges[i].weight, G.edges[i].removed, G.edges[i].ignore );
+  int i, j;
+  printf( "Printing graph......\n" );
+  printf( "Number of nodes: %d\n", G.NumNodes );
+
+  for ( i = 0; i < G.NumNodes; ++i ) {
+    AdjList *adj = G.adjlist[ i ];
+    printf( "%s ==> ", adj->src );
+    for ( j = 0; j < adj->NumEdges; ++j ) {
+      Edge e = adj->edges[ j ];
+      printf( "(%s,%d,%d) ", e.dest, e.time, e.msgsize );
+    }
+    putchar( '\n' );
   }
 }
 
-static void count_nodes_edges( vertex **graphs, int *sizes,int num,
-			       int *node_count, int *edge_count )
+static void count_nodes( vertex **graphs, int *sizes,int num, int *node_count )
 {
   int i, j, collective_count = 0;
 
@@ -47,145 +50,57 @@ static void count_nodes_edges( vertex **graphs, int *sizes,int num,
     // since they are all shared by ranks.
     *node_count += sizes[i] - collective_count - 2;
   }
-
-  /* count number of edges in the graph */
-  for ( i = 0; i < num; ++i ) {
-    // count the number of edges within each local graph
-    *edge_count += sizes[i] - 1;
-    for ( j = 1; j < sizes[i] - 1; ++j ) {
-      if ( is_send_oper( graphs[i][j].name ) ) {
-	++(*edge_count); // count 1 if it is MPI_Send or MPI_Isend
-      }
-    }
-  }
 }
 
-static void remove_redundent_edges( int numranks )
+static void MatchSendRecv( vertex **graphs, int *vec_sizes, int numranks )
 {
-  int i, j, max, maxindex;
-  node from, to;
-
-  for ( i = 1; i < G.edge_count; ++i ) {
-    from = G.edges[i].from;
-    to = G.edges[i].to;
-
-    if ( is_collective_oper( from.name ) &&
-	 is_collective_oper( to.name ) ) {
-      max = G.edges[i].weight;
-      maxindex = i;
-
-      for ( j = i+1; j < G.edge_count; ++j ) {
-	if ( strcmp(from.name, G.edges[j].from.name) == 0 &&
-	     strcmp(to.name, G.edges[j].to.name) == 0 ) {
-	  if ( G.edges[j].weight > max ) {
-	    max = G.edges[j].weight;
-	    maxindex = j;
-	  }
-	}
-      }
-
-      for ( j = i; j < G.edge_count; ++j ) {
-	if ( strcmp(from.name, G.edges[j].from.name) == 0 &&
-	     strcmp(to.name, G.edges[j].to.name) == 0 ) {
-	  if ( j != maxindex ) {
-	    G.edges[j].ignore = 1;
-	    G.edges[j].removed = 1;
-	  }
-	}
-      }      
-    }
-  }
-
-#if DEBUG
-  print_graph();
-#endif
-}
-
-/**
- * graphs: an array of graph defined in profile.c
- * sizes: number of nodes in each graph
- * num: size of the array 'graphs' and 'sizes'
- */
-static void build_graph( vertex **graphs, int *sizes, int num )
-{
-  int node_count = 0, edge_count = 0, i, j, id = 0;
-  int *indexes;
-  char *name;
+  int i, j, msg_size;
   vertex *g;
-
-  count_nodes_edges( graphs, sizes, num, &node_count, &edge_count );
-#if DEBUG
-  printf( "Number of nodes: %d\n", node_count );
-  printf( "Number of edges: %d\n", edge_count );
-#endif
-
-  G.nodes = (node *) malloc( node_count * sizeof(node) );
-  G.edges = (edge *) malloc( edge_count * sizeof(edge) );
-  node_count = 0; // reset
-  edge_count = 0; // reset
+  char *name;
+  int *indexes = (int *) malloc( numranks * sizeof(int) );
+  AdjList *adj;
   
-  /* build nodes */
-  
-  for ( i = 0; i < sizes[0]; ++i ) {
-    strcpy( G.nodes[ node_count++ ].name, graphs[0][i].name );
-  }
-      
-  for ( i = 1; i < num; ++i ) {
-    for ( j = 1; j < sizes[i] - 1; ++j ) {
-      if ( is_sendrecv_oper( graphs[i][j].name ) ) {
-	strcpy( G.nodes[ node_count++ ].name, graphs[i][j].name );
-      }
-    }
-  }
-
-  /* build edges */
-  for ( i = 0; i < num; ++i ) {
-    for ( j = 0; j < sizes[i]-1; ++j ) {
-      strcpy( G.edges[ edge_count ].from.name, graphs[i][j].name );
-      strcpy( G.edges[ edge_count ].to.name, graphs[i][j+1].name );
-      G.edges[ edge_count ].weight = (int) round( graphs[i][j+1].start_time -
-						  graphs[i][j].end_time ) * 1000; // ms
-      G.edges[ edge_count ].removed = 0;
-      G.edges[ edge_count ].ignore = 0;
-      ++edge_count;
-    }
-  }
-
-  /* Third pass: collect edges between local graphs. */
-
-  indexes = (int *) malloc( num * sizeof(int) );
-  for ( i = 0; i < num; ++i ) {
+  for ( i = 0; i < numranks; ++i ) {
     indexes[ i ] = 0; // always traverse from the beginning.
   }
 
-  for ( i = 0; i < num; ++i ) {
+  for ( i = 0; i < numranks; ++i ) {
     g = graphs[ i ];
-    for ( j = 0; j < sizes[i]; ++j ) {
+    for ( j = 0; j < vec_sizes[i]-1; ++j ) {
       name = g[ j ].name;
       if ( is_send_oper(name) ) {
 	vertex *g2;
 	int k, rank2, latency;
 
-	latency = sendrecv_latency( g[j].msg_size );
+	msg_size = g[ j ].msg_size;
+	latency = sendrecv_latency( msg_size );
 	rank2 = g[ j ].receiver_rank;
 	g2 = graphs[ rank2 ]; // get the graph of the receiver rank.
 
 	// Go through the graph of receiver rank, find the match receving
 	// operations, either MPI_Recv or MPI_Wait.
-	for ( k = indexes[rank2]; k < sizes[rank2]; ++k ) {
+	for ( k = indexes[rank2]; k < vec_sizes[rank2]; ++k ) {
 	  if ( is_block_recv_oper( g2[k].name ) ) {
 	    if ( g[j].sender_rank == g2[k].sender_rank &&
 		 g[j].receiver_rank == g2[k].receiver_rank &&
 		 g[j].tag == g2[k].tag ) { // find a match
+	      
+	      adj = (AdjList *) malloc( sizeof(AdjList) );
+	      strcpy( adj->src, name ); // sender name
+	      adj->NumEdges = 2; // there is always two edges for a sender
+	      adj->edges = (Edge *) malloc( adj->NumEdges * sizeof(Edge) );
 
-	      strcpy( G.edges[ edge_count ].from.name, g[j].name );
-	      strcpy( G.edges[ edge_count ].to.name, g2[k].name );
-	      G.edges[ edge_count ].weight = latency;
-	      G.edges[ edge_count ].removed = 0;
-	      G.edges[ edge_count ].ignore = 0;
-	      G.edges[ edge_count ].msgsize = g[j].msg_size;
+	      // edge in the same rank: computation edge
+	      strcpy( adj->edges[0].dest, graphs[i][j+1].name );
+	      adj->edges[0].time = (int ) round( (graphs[i][j+1].start_time -
+						  graphs[i][j].end_time) * 1000 );
 
-	      ++edge_count;
+	      // edge in the same rank: latency edge
+	      strcpy( adj->edges[1].dest, g2[k].name );
+	      adj->edges[1].time = latency;
+	      adj->edges[1].msgsize = msg_size;
+
+	      G.adjlist[ GetNodeIndex(name) ] = adj;
 
 	      indexes[ rank2 ]++;
 	      break;
@@ -196,121 +111,169 @@ static void build_graph( vertex **graphs, int *sizes, int num )
       }
     }
     // Reset indexes for the next graph.
-    for ( j = 0; j < num; ++j ) {
+    for ( j = 0; j < numranks; ++j ) {
       indexes[ j ] = 0; 
     }
   }
-
-  G.node_count = node_count;
-  G.edge_count = edge_count;
-  
-#if DEBUG
-  //print_graph();
-#endif
 }
 
-static node * get_neighbors( node *nd, int *size )
+static void BuildAdjList( vertex **graphs, int *sizes, int numranks )
 {
-  int i;
-  node *ns = (node *) malloc( 25 * sizeof(node) );
-  *size = 0;
+  int i, j;
+  AdjList *adj = (AdjList *) malloc( sizeof(AdjList) );
 
-  for ( i = 0; i < G.edge_count; ++i ) {
-    if ( strcmp(nd->name, G.edges[i].from.name) == 0 ) {
-      if ( G.edges[i].ignore == 0 ) { // skip ignored edges.
-	ns[ (*size)++ ] = G.edges[ i ].to;
-	G.edges[ i ].removed = 1; // remove the edge
+  // build adj list for MPI_Init
+  if ( is_collective_oper(graphs[0][1].name) ||
+       strcmp(graphs[0][1].name, "MPI_Finalize") == 0 ) {
+    if ( G.adjlist[ GetNodeIndex("MPI_Init") ] == NULL ) {
+      adj = (AdjList *) malloc( sizeof(AdjList) );
+      adj->NumEdges = 1;
+      adj->edges = (Edge *) malloc( 1 * sizeof(Edge) );
+      strcpy( adj->src, "MPI_Init" );
+      strcpy( adj->edges[0].dest, graphs[0][1].name );
+      G.adjlist[ GetNodeIndex("MPI_Init") ] = adj;
+      G.adjlist[GetNodeIndex("MPI_Init")]->edges[0].time = 0;
+    }
+    for ( i = 0; i < numranks; ++i ) {
+      int time = (int) round( (graphs[i][1].start_time -
+			       graphs[i][0].end_time) * 1000 );
+      if ( time > G.adjlist[GetNodeIndex("MPI_Init")]->edges[0].time )
+	G.adjlist[GetNodeIndex("MPI_Init")]->edges[0].time = time;
+    }
+  } else {
+    strcpy( adj->src, "MPI_Init" );
+    adj->edges = (Edge *) malloc( numranks * sizeof(Edge) );
+    for ( i = 0; i < numranks; ++i ) {
+      strcpy( adj->edges[i].dest, graphs[i][1].name );
+      adj->edges[i].time = (int) round( (graphs[i][1].start_time -
+					 graphs[i][0].end_time) * 1000 );
+    }
+    adj->NumEdges = numranks;
+    G.adjlist[ GetNodeIndex("MPI_Init") ] = adj;
+  }
+
+  MatchSendRecv( graphs, sizes, numranks );
+  for ( i = 0; i < numranks; ++i ) {
+    // skip MPI_Init and MPI_Finalize
+    for ( j = 1; j < sizes[i]-1; ++j ) {
+      if ( is_recv_oper(graphs[i][j].name) ) { // recvs
+	adj = (AdjList *) malloc( sizeof(AdjList) );
+	strcpy( adj->src, graphs[i][j].name );
+	adj->NumEdges = 1; // always one outgoing edge for recvs
+	adj->edges = (Edge *) malloc( adj->NumEdges * sizeof(Edge) );
+	strcpy( adj->edges[0].dest, graphs[i][j+1].name );
+	adj->edges[0].time = (int) round( (graphs[i][j+1].start_time -
+					    graphs[i][j].end_time) * 1000 );
+	G.adjlist[ GetNodeIndex(graphs[i][j].name) ] = adj;
+      } else if ( is_collective_oper(graphs[i][j].name) ) { // collectives
+	
+	if ( G.adjlist[ GetNodeIndex(graphs[i][j].name) ] == NULL ) {
+	  adj = (AdjList *) malloc( sizeof(AdjList) );
+	  strcpy( adj->src, graphs[i][j].name );
+	  if ( is_collective_oper(graphs[i][j+1].name) ||
+	       strcmp(graphs[i][j+1].name, "MPI_Finalize") == 0 ) {
+	    adj->NumEdges = 1;
+	  } else {
+	    adj->NumEdges = numranks; // 'numranks' fanout for collectives
+	  }
+	  adj->edges = (Edge *) malloc( adj->NumEdges * sizeof(Edge) );
+	  strcpy( adj->edges[0].dest, graphs[i][j+1].name );
+	  G.adjlist[ GetNodeIndex(graphs[i][j].name) ] = adj;
+	  G.adjlist[GetNodeIndex(graphs[i][j].name)]->edges[0].time = 0;
+	}
+	int time = (int) round( (graphs[i][j+1].start_time -
+				 graphs[i][j].end_time) * 1000 );
+
+	if ( is_collective_oper(graphs[i][j+1].name) ||
+	     strcmp(graphs[i][j+1].name, "MPI_Finalize") == 0 ) {
+	  if ( time > G.adjlist[GetNodeIndex(graphs[i][j].name)]->edges[0].time )
+	    G.adjlist[GetNodeIndex(graphs[i][j].name)]->edges[0].time = time;
+	} else {
+	  strcpy( G.adjlist[GetNodeIndex(graphs[i][j].name)]->edges[i].dest, graphs[i][j+1].name );
+	  G.adjlist[GetNodeIndex(graphs[i][j].name)]->edges[i].time = time;
+	}
       }
     }
   }
 
-  return ns;
+  adj = (AdjList *) malloc( sizeof(AdjList) );
+  strcpy( adj->src, "MPI_Finalize" );
+  adj->NumEdges = 0;
+  G.adjlist[ GetNodeIndex("MPI_Finalize") ] = adj;
+
+  print_graph();
 }
 
-static int has_incoming_edges( node *nd )
+static void SetupIndex2Name( vertex **graphs, int *sizes, int numranks )
 {
-  int i;
-  for ( i = 0; i < G.edge_count; ++i ) {
-    if ( strcmp(nd->name, G.edges[i].to.name) == 0  &&
-	 G.edges[i].removed == 0 ) {
-      return 1;
+  int i, j, collective_count = 0, count = 0;
+
+  i2n[ count ].index = count;
+  strcpy( i2n[ count ].name, "MPI_Init" );
+  count++;
+  i2n[ count ].index = count;
+  strcpy( i2n[ count ].name, "MPI_Finalize" );
+  count++;
+  
+  for ( i = 1; i < sizes[0]-1; ++i ) {
+    if ( !is_sendrecv_oper( graphs[0][i].name ) ) {
+      i2n[ count ].index = count;
+      strcpy( i2n[ count ].name, graphs[0][i].name );
+      count++;
     }
   }
-  return 0;
+
+  for ( i = 0; i < numranks; ++i ) {
+    // Ignore MPI_Init and MPI_Finalize and all collectives
+    // since they are all shared by ranks.
+    for ( j = 1; j < sizes[i]-1; ++j ) {
+      if ( is_sendrecv_oper( graphs[i][j].name ) ) {
+	i2n[ count ].index = count;
+	strcpy( i2n[ count ].name, graphs[i][j].name );
+	count++;
+      }
+    }
+  }
+
+#if DEBUG
+  printf( "Number of nodes: %d\n", count );
+  printf( "Node name : index\n" );
+  for ( i = 0; i < count; ++i ) {
+    printf( "%s : %d\n", i2n[i].name, i2n[i].index );
+  }
+#endif
+}
+
+static int GetNodeIndex( char *name )
+{
+  int i;
+  for ( i = 0; i < G.NumNodes; ++i ) {
+    if ( strcmp(i2n[i].name, name) == 0)
+      return i2n[i].index;
+  }
 }
 
 /**
- * Topologically sorting the graph G.
+ * graphs: an array of graph defined in profile.c
+ * sizes: number of nodes in each graph
+ * num: size of the array 'graphs' and 'sizes'
  */
-static void toposort()
+static void build_graph( vertex **graphs, int *sizes, int numranks )
 {
-  int i, j, tmp_count, topo_count = 0, size;
-  node *neighbors;
-  
-  // list of nodes in topological order
-  node *topo_nodes = (node *) malloc( G.node_count * sizeof(node) );
-  // list of nodes with no incoming edges
-  node *tmp_nodes = (node *) malloc( G.node_count * sizeof(node) );
+  int node_count = 0, i, j, id = 0;
+  int *indexes;
+  char *name;
+  vertex *g;
 
-  /* Initially, tmp_nodes has only MPI_Init. */
-  tmp_nodes[0] = G.nodes[0];
-  tmp_count = 1;
+  count_nodes( graphs, sizes, numranks, &node_count );
+  G.NumNodes = node_count;
+  i2n = (Index2Name *) malloc( node_count * sizeof(Index2Name) );
+  SetupIndex2Name( graphs, sizes, numranks );
 
-  while ( tmp_count > 0 ) {
-    topo_nodes[ topo_count ] = tmp_nodes[ --tmp_count ];
-    neighbors = get_neighbors( &topo_nodes[topo_count], &size );
-    for ( i = 0; i < size; ++i ) {
-      //printf( "neighbor %d: %s\n", i, neighbors[i].name );
-      if ( !has_incoming_edges( &neighbors[i] ) ) {
-	tmp_nodes[ tmp_count++ ] = neighbors[i];
-      }
-    }
-    topo_count++;
-  }
-
-#if DEBUG
-  printf( "topo_count = %d\n", topo_count );
-  for ( i = 0; i < topo_count; ++i ) {
-    printf( "%s -> ", topo_nodes[i].name );
-  }
-  putchar( '\n' );
-#endif
-
-  G.nodes = topo_nodes; // replace G.nodes with topologically ording nodes.
-  /* restore removed flag for edges */
-  for ( i = 0; i < G.edge_count; ++i ) {
-    if ( G.edges[i].ignore == 0 ) {
-      G.edges[i].removed = 0;
-    }
-  }
-}
-
-static int get_record( node *nd )
-{
-  int i;
-  for ( i = 0; i < G.node_count; ++i) {
-    if ( strcmp(nd->name, lon[i].nd.name) == 0 ) {
-      return lon[i].len;
-    }
-  }
-}
-
-static int get_incomings( node *nd )
-{
-  int i, max = 0, len, prev;
-  node *ns = (node *) malloc( 25 * sizeof(node) );
-  
-  for ( i = 0; i < G.edge_count; ++i ) {
-    if ( strcmp(nd->name, G.edges[i].to.name) == 0  &&
-	 G.edges[i].ignore == 0 ) {
-      prev = get_record( &G.edges[i].from );
-      len = prev + G.edges[i].weight;
-      if ( len > max )
-	max = len;
-    }
-  }
-
-  return max;
+  G.adjlist = (AdjList **) malloc( G.NumNodes * sizeof(AdjList*) );
+  for ( i = 0; i < G.NumNodes; ++i )
+    G.adjlist[ i ] = NULL;
+  BuildAdjList( graphs, sizes, numranks );
 }
 
 void find_critical_path( vertex **graphs, int *sizes, int numranks )
@@ -319,93 +282,4 @@ void find_critical_path( vertex **graphs, int *sizes, int numranks )
   FILE *cpath;
   
   build_graph( graphs, sizes, numranks );
-  remove_redundent_edges( numranks );  
-  toposort();
-
-  lon = (longest *) malloc( G.node_count * sizeof(longest) );
-  path = (node *) malloc( G.node_count * sizeof(node ) );
-  path_len = 0;
-  
-  //print_graph();
-  lon[ 0 ].nd = G.nodes[ 0 ];
-  lon[ 0 ].len = 0;
-  for ( i = 1; i < G.node_count; ++i ) {
-    lon[ i ].nd = G.nodes[ i ];
-    lon[ i ].len = get_incomings( &G.nodes[i] );
-  }
-
-  for ( i = 0; i < G.node_count; ++i ) {
-    //printf( "node %s longest %d\n", lon[i].nd.name, lon[i].len );
-  }
-
-  path[path_len] = lon[G.node_count-1].nd;
-
-  while ( strcmp(path[path_len].name, "MPI_Init") != 0 ) {
-    for ( j = 0; j < G.edge_count; ++j ) {
-      if ( strcmp(path[path_len].name, G.edges[j].to.name) == 0  &&
-	   G.edges[j].ignore == 0 ) {
-	prev = get_record( &G.edges[j].from );
-	len = prev + G.edges[j].weight;
-	if ( len ==  get_record( &(path[path_len]) )) {
-	  path[++path_len] = G.edges[j].from;
-	}
-      }
-    }
-  }
-
-  for ( i = 0; i <= path_len; ++i ) {
-    //printf( "path: %s\n", path[i].name );
-  }
-
-  cpath = fopen( "critPath.out", "w" );
-  for ( i = path_len; i >= 1; --i ) {
-    if (strcmp(path[i].name, "MPI_Init")) {
-      char *name = path[i].name;
-      char mpi[30];
-      char rank[5];
-      int cnt = 0;
-      for (j = 0; j < strlen(name); ++j) {
-	if (name[j] != '_' && cnt < 2) {
-	  mpi[j] = name[j];
-	} else if (name[j] == '_' ) {
-	  cnt++;
-	  if (cnt < 2)
-	    mpi[j] = name[j];
-	  else {
-	    mpi[j] = 0;
-	    break;
-	  }
-	}
-      }
-      if (is_sendrecv_oper(path[i].name)) {
-	int index = 0;
-	for ( j = j+1; j < strlen(name); ++j) {
-	  if (name[j] != '_') {
-	    rank[index++] = name[j];
-	  } else break;
-	}
-	rank[ index ] = 0;
-	fprintf( cpath, "%s %s\n", mpi, rank );
-      } else {
-	fprintf( cpath, "%s -1\n", mpi );
-      }
-    }
-    else {
-      fprintf( cpath, "%s -1\n", path[i].name );
-    }
-    for ( j = 0; j < G.edge_count; ++j ) {
-      if ( strcmp(path[i].name, G.edges[j].from.name) == 0 &&
-	   strcmp(path[i-1].name, G.edges[j].to.name) == 0 &&
-	   G.edges[j].ignore == 0 ) {
-	if (is_send_oper(path[i].name)) {
-	  fprintf( cpath, "%d\n", G.edges[j].msgsize );
-	}
-	else {
-	  fprintf( cpath, "%d\n", G.edges[j].weight/1000 );
-	}
-	break;
-      }
-    }
-  }
-  fprintf( cpath, "%s -1\n", path[0].name );
 }

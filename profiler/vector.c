@@ -3,6 +3,7 @@
  */
 
 #include "vector.h"
+#include "helpers.h"
 
 /* Initialize vector 'vec' with capacity of 'capacity'. */
 void init_vector( vector * vec, int capacity )
@@ -43,4 +44,14 @@ void resize_vector( vector * vec )
 void free_vector( vector * vec )
 {
   free( vec->vs );
+}
+
+void print_vertex( vertex *v )
+{
+  if ( is_sendrecv_oper(v->name) ) {
+    printf( "%s(%.3f,%.3f,%d->%d,tag=%d,size=%d) => ", v->name, v->start_time,
+            v->end_time, v->sender_rank, v->receiver_rank, v->tag, v->msg_size );
+  } else {
+    printf( "%s(%.3f,%.3f) => ", v->name, v->start_time, v->end_time );
+  }
 }

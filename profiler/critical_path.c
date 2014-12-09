@@ -335,7 +335,7 @@ void find_critical_path( vertex **graphs, int *sizes, int numranks )
   }
 
   for ( i = 0; i < G.node_count; ++i ) {
-    printf( "node %s longest %d\n", lon[i].nd.name, lon[i].len );
+    //printf( "node %s longest %d\n", lon[i].nd.name, lon[i].len );
   }
 
   path[path_len] = lon[G.node_count-1].nd;
@@ -354,7 +354,7 @@ void find_critical_path( vertex **graphs, int *sizes, int numranks )
   }
 
   for ( i = 0; i <= path_len; ++i ) {
-    printf( "path: %s\n", path[i].name );
+    //printf( "path: %s\n", path[i].name );
   }
 
   cpath = fopen( "critPath.out", "w" );
